@@ -8,12 +8,8 @@ output_folder = "/leonardo_scratch/large/userexternal/tahmed00/talent-data"
 
 os.makedirs(output_folder, exist_ok=True)
 
-def safe_filename(name, max_length=100):
-    if len(name) > max_length:
-        hash_part = hashlib.md5(name.encode()).hexdigest()[:8]
-        extension = os.path.splitext(name)[1]
-        name = f"{name[:max_length - len(hash_part) - len(extension) - 1]}_{hash_part}{extension}"
-    return name
+def hash_filename(name):
+    return hashlib.sha256(name.encode()).hexdigest()
 
 mine_counter = 1
 
@@ -26,37 +22,52 @@ for tar_file_name in os.listdir(data_folder):
 
         with tarfile.open(tar_file_path, "r") as tar, open(csv_file_path, "w", newline="") as csv_file:
             csv_writer = csv.writer(csv_file)
-            csv_writer.writerow(["Original Filename", "Revised Filename", "Tarfilename"])
+            csv_writer.writerow([
+                "Original AudioFilename",
+                "Hashed AudioFilename",
+                "Original JSONFilename",
+                "Hashed JSONFilename"
+            ])
 
-            def tar_filter(member):
-                member.name = safe_filename(member.name)
-                return member if member.isfile() else None
+            members = [m for m in tar.getmembers() if m.isfile()]
+            file_mappings = []
 
-            members = [tar_filter(m) for m in tar.getmembers()]
+            for member in members:
+                original_name = os.path.basename(member.name)
+                hashed_name = hash_filename(original_name)
+                extension = os.path.splitext(original_name)[1]
+                hashed_name_with_ext = f"{hashed_name}{extension}"
+
+                member.name = hashed_name_with_ext
+
+                file_mappings.append({
+                    "original_name": original_name,
+                    "hashed_name": hashed_name_with_ext,
+                    "extension": extension,
+                })
+
             tar.extractall(mine_folder, members=members)
 
-            audio_counter = 0
-            for member in members:
-                original_filename = member.name
-                file_path = os.path.join(mine_folder, original_filename)
+            audio_files = [f for f in file_mappings if f["extension"] in [".mp3", ".wav", ".flac"]]
+            json_files = [f for f in file_mappings if f["extension"] == ".json"]
 
-                if os.path.exists(file_path):
-                    revised_filename = f"audio{audio_counter}"
-                    revised_file_path = os.path.join(mine_folder, revised_filename)
+            for audio_file in audio_files:
+                audio_original = audio_file["original_name"]
+                audio_hashed = audio_file["hashed_name"]
 
-                    os.rename(file_path, revised_file_path)
+                matching_json = next(
+                    (j for j in json_files if j["original_name"].startswith(os.path.splitext(audio_original)[0])),
+                    None
+                )
 
-                    json_filename = original_filename.rsplit('.', 1)[0] + ".json"
-                    revised_json_filename = revised_filename + ".json"
+                json_original = matching_json["original_name"] if matching_json else ""
+                json_hashed = matching_json["hashed_name"] if matching_json else ""
 
-                    json_file_path = os.path.join(mine_folder, json_filename)
-                    revised_json_file_path = os.path.join(mine_folder, revised_json_filename)
-
-                    if os.path.exists(json_file_path):
-                        os.rename(json_file_path, revised_json_file_path)
-
-                    csv_writer.writerow([original_filename, revised_filename, tar_file_path])
-
-                    audio_counter += 1
+                csv_writer.writerow([
+                    audio_original,
+                    audio_hashed,
+                    json_original,
+                    json_hashed
+                ])
 
         mine_counter += 1
